@@ -14,10 +14,10 @@
 #define WATER_LEVEL_PIN 36
 #define SD_CS 5
 
-const char *ssid = "hellobuddy";
-const char *password = "abisheck003";
-unsigned long myChannelNumber = 2937230;
-const char *myWriteAPIKey = "YWTYTM209FQT5V5I";
+const char *ssid = "*********";
+const char *password = "****************";
+unsigned long myChannelNumber = 12345678;
+const char *myWriteAPIKey = "your_write_apikey";
 
 const char *ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 19800; // GMT+5:30
@@ -51,8 +51,8 @@ void DHT11Task(void *parameter) {
     dhtTemperature = dht.readTemperature();
     if (!isnan(dhtHumidity) && !isnan(dhtTemperature)) {
       Serial.println("DHT11 Sensor:");
-      Serial.print("Humidity: "); Serial.print(dhtHumidity);
-      Serial.print("% Temp: "); Serial.println(dhtTemperature);
+      Serial.print("Humidity: "); Serial.print(dhtHumidity); Serial.print("%");
+      Serial.print(" | Temp: "); Serial.print(dhtTemperature); Serial.println("°C");
     }
     vTaskDelay(5000 / portTICK_PERIOD_MS);
   }
@@ -60,8 +60,8 @@ void DHT11Task(void *parameter) {
 
 void WaterLevelTask(void *parameter) {
   while (true) {
-    waterLevel = analogRead(WATER_LEVEL_PIN);
-    Serial.print("Water Level: "); Serial.println(waterLevel);
+    waterLevel = analogRead(WATER_LEVEL_PIN);  // Already in percentage form (0-100)
+    Serial.print("Water Level: "); Serial.print(waterLevel); Serial.println("%");
     vTaskDelay(5000 / portTICK_PERIOD_MS);
   }
 }
@@ -70,36 +70,49 @@ void MPU6050Task(void *parameter) {
   while (true) {
     mpu.getAcceleration(&ax, &ay, &az);
     mpu.getRotation(&gx, &gy, &gz);
-    Serial.println("MPU6050:");
-    Serial.printf("Ax:%d Ay:%d Az:%d | Gx:%d Gy:%d Gz:%d\n", ax, ay, az, gx, gy, gz);
+    Serial.println("MPU6050 Sensor:");
+    Serial.print("Ax: "); Serial.print(ax / 9.81); Serial.print(" m/s²");
+    Serial.print(" | Ay: "); Serial.print(ay / 9.81); Serial.print(" m/s²");
+    Serial.print(" | Az: "); Serial.print(az / 9.81); Serial.print(" m/s²");
+    Serial.print(" | Gx: "); Serial.print(gx); Serial.print("°/s");
+    Serial.print(" | Gy: "); Serial.print(gy); Serial.print("°/s");
+    Serial.print(" | Gz: "); Serial.print(gz); Serial.println("°/s");
     vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
 
 void BMP180Task(void *parameter) {
+  const float knownAltitude = 427.0;  // meters, actual altitude of Coimbatore
+  float seaLevelPressure;
+
   while (true) {
-    bmp.getPressure(&pressure);
-    bmp.getTemperature(&bmpTemperature);
-    altitude = bmp.pressureToAltitude(1013.25, pressure);
-    Serial.println("BMP180:");
-    Serial.printf("Temp: %.2f | Pressure: %.2f | Alt: %.2f\n", bmpTemperature, pressure, altitude);
+    bmp.getPressure(&pressure);                 // in Pa
+    bmp.getTemperature(&bmpTemperature);        // in °C
+
+    float pressure_hPa = pressure / 100.0;       // Convert to hPa
+
+    seaLevelPressure = bmp.seaLevelForAltitude(knownAltitude, pressure_hPa);
+    altitude = bmp.pressureToAltitude(seaLevelPressure, pressure_hPa);
+
+    Serial.println("BMP180 Sensor:");
+    Serial.print("BMP_Temperature: "); Serial.print(bmpTemperature); Serial.print("°C");
+    Serial.print(" | Pressure: "); Serial.print(pressure_hPa); Serial.print(" hPa");
+    Serial.print(" | Altitude: "); Serial.print(altitude); Serial.println(" m");
+
     vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
 
 void ThingSpeakTask(void *parameter) {
   while (true) {
-    String accelData = String(ax) + "," + String(ay) + "," + String(az);
-    String gyroData = String(gx) + "," + String(gy) + "," + String(gz);
-
-    ThingSpeak.setField(1, dhtTemperature);
-    ThingSpeak.setField(2, dhtHumidity);
-    ThingSpeak.setField(3, waterLevel);
-    ThingSpeak.setField(4, pressure);
-    ThingSpeak.setField(5, altitude);
-    ThingSpeak.setField(6, bmpTemperature);
-    ThingSpeak.setField(7, accelData);
-    ThingSpeak.setField(8, gyroData);
+    ThingSpeak.setField(1, dhtTemperature);        // DHT Temperature in °C
+    ThingSpeak.setField(2, dhtHumidity);           // DHT Humidity in %
+    ThingSpeak.setField(3, waterLevel);            // Water level in %
+    ThingSpeak.setField(4, pressure);              // Pressure in hPa
+    ThingSpeak.setField(5, altitude);              // Altitude in m
+    ThingSpeak.setField(6, (float)(ax / 9.81));    // Ax (converted to m/s², by dividing by 9.81)
+    ThingSpeak.setField(7, (float)(ay / 9.81));    // Ay (converted to m/s², by dividing by 9.81)
+    ThingSpeak.setField(8, (float)(az / 9.81));    // Az (converted to m/s², by dividing by 9.81)
 
     int code = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
     if (code == 200) {
@@ -108,7 +121,7 @@ void ThingSpeakTask(void *parameter) {
       Serial.printf("❌ ThingSpeak update failed (code: %d)\n", code);
     }
 
-    vTaskDelay(30000 / portTICK_PERIOD_MS);
+    vTaskDelay(30000 / portTICK_PERIOD_MS);  // Delay before next ThingSpeak update
   }
 }
 
@@ -117,16 +130,16 @@ void SDCardLoggerTask(void *parameter) {
     String now = getCurrentTime();
     File file = SD.open("/log.csv", FILE_APPEND);
     if (file) {
-      file.printf("%s,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d,%d\n",
+      file.printf("%s,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n",
                   now.c_str(), dhtTemperature, dhtHumidity, waterLevel,
                   pressure, altitude, bmpTemperature,
-                  ax, ay, az, gx, gy, gz);
+                  ax / 9.81, ay / 9.81, az / 9.81, gx, gy, gz);
       file.close();
       Serial.println("✅ Data logged to SD card");
     } else {
       Serial.println("❌ Failed to open log.csv");
     }
-    vTaskDelay(15000 / portTICK_PERIOD_MS);
+    vTaskDelay(15000 / portTICK_PERIOD_MS);  // Log every 15 seconds
   }
 }
 
@@ -182,7 +195,7 @@ void setup() {
   Serial.println("✅ SD card initialized.");
   File file = SD.open("/log.csv", FILE_WRITE);
   if (file) {
-    file.println("Timestamp,DHT_Temp,DHT_Humidity,Water_Level,Pressure,Altitude,BMP_Temp,Ax,Ay,Az,Gx,Gy,Gz");
+    file.println("Timestamp,DHT_Temperature(°C),DHT_Humidity(%),Water_Level(%),Pressure(hPa),Altitude(m),BMP_Temperature(°C),Ax(m/s²),Ay(m/s²),Az(m/s²),Gx(°/s),Gy(°/s),Gz(°/s)");
     file.close();
     Serial.println("Test file written.");
   } else {
@@ -193,7 +206,7 @@ void setup() {
   xTaskCreatePinnedToCore(WaterLevelTask, "WaterLevel", 4096, NULL, 1, &WaterLevelTaskHandle, 0);
   xTaskCreatePinnedToCore(MPU6050Task, "MPU6050", 4096, NULL, 1, &MPU6050TaskHandle, 0);
   xTaskCreatePinnedToCore(BMP180Task, "BMP180", 4096, NULL, 1, &BMP180TaskHandle, 0);
-  xTaskCreatePinnedToCore(SDCardLoggerTask, "SDLogger", 8192, NULL, 1, &SDCardLoggerTaskHandle, 1);
+  xTaskCreatePinnedToCore(SDCardLoggerTask, "SDLogger", 4096, NULL, 1, &SDCardLoggerTaskHandle, 1);
   xTaskCreatePinnedToCore(ThingSpeakTask, "ThingSpeak", 4096, NULL, 2, &ThingSpeakTaskHandle, 1);
 }
 
