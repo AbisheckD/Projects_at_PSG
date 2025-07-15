@@ -14,10 +14,10 @@
 #define WATER_LEVEL_PIN 36
 #define SD_CS 5
 
-const char *ssid = "*********";
-const char *password = "****************";
-unsigned long myChannelNumber = 12345678;
-const char *myWriteAPIKey = "your_write_apikey";
+const char *ssid = "hellobuddy";
+const char *password = "abisheck003";
+unsigned long myChannelNumber = 2937230;
+const char *myWriteAPIKey = "YWTYTM209FQT5V5I";
 
 const char *ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 19800; // GMT+5:30
@@ -37,6 +37,9 @@ float dhtTemperature, dhtHumidity;
 int16_t ax, ay, az, gx, gy, gz;
 int waterLevel;
 
+SemaphoreHandle_t printMutex;
+SemaphoreHandle_t resourceMutex;
+
 String getCurrentTime() {
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) return "N/A";
@@ -50,9 +53,11 @@ void DHT11Task(void *parameter) {
     dhtHumidity = dht.readHumidity();
     dhtTemperature = dht.readTemperature();
     if (!isnan(dhtHumidity) && !isnan(dhtTemperature)) {
+      xSemaphoreTake(printMutex, portMAX_DELAY);
       Serial.println("DHT11 Sensor:");
       Serial.print("Humidity: "); Serial.print(dhtHumidity); Serial.print("%");
       Serial.print(" | Temp: "); Serial.print(dhtTemperature); Serial.println("°C");
+      xSemaphoreGive(printMutex);
     }
     vTaskDelay(5000 / portTICK_PERIOD_MS);
   }
@@ -60,8 +65,10 @@ void DHT11Task(void *parameter) {
 
 void WaterLevelTask(void *parameter) {
   while (true) {
-    waterLevel = analogRead(WATER_LEVEL_PIN);  // Already in percentage form (0-100)
+    waterLevel = analogRead(WATER_LEVEL_PIN);
+    xSemaphoreTake(printMutex, portMAX_DELAY);
     Serial.print("Water Level: "); Serial.print(waterLevel); Serial.println("%");
+    xSemaphoreGive(printMutex);
     vTaskDelay(5000 / portTICK_PERIOD_MS);
   }
 }
@@ -70,6 +77,7 @@ void MPU6050Task(void *parameter) {
   while (true) {
     mpu.getAcceleration(&ax, &ay, &az);
     mpu.getRotation(&gx, &gy, &gz);
+    xSemaphoreTake(printMutex, portMAX_DELAY);
     Serial.println("MPU6050 Sensor:");
     Serial.print("Ax: "); Serial.print(ax / 9.81); Serial.print(" m/s²");
     Serial.print(" | Ay: "); Serial.print(ay / 9.81); Serial.print(" m/s²");
@@ -77,27 +85,28 @@ void MPU6050Task(void *parameter) {
     Serial.print(" | Gx: "); Serial.print(gx); Serial.print("°/s");
     Serial.print(" | Gy: "); Serial.print(gy); Serial.print("°/s");
     Serial.print(" | Gz: "); Serial.print(gz); Serial.println("°/s");
+    xSemaphoreGive(printMutex);
     vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
 
 void BMP180Task(void *parameter) {
-  const float knownAltitude = 427.0;  // meters, actual altitude of Coimbatore
+  const float knownAltitude = 427.0;
   float seaLevelPressure;
 
   while (true) {
-    bmp.getPressure(&pressure);                 // in Pa
-    bmp.getTemperature(&bmpTemperature);        // in °C
-
-    float pressure_hPa = pressure / 100.0;       // Convert to hPa
-
+    bmp.getPressure(&pressure);
+    bmp.getTemperature(&bmpTemperature);
+    float pressure_hPa = pressure / 100.0;
     seaLevelPressure = bmp.seaLevelForAltitude(knownAltitude, pressure_hPa);
     altitude = bmp.pressureToAltitude(seaLevelPressure, pressure_hPa);
 
+    xSemaphoreTake(printMutex, portMAX_DELAY);
     Serial.println("BMP180 Sensor:");
     Serial.print("BMP_Temperature: "); Serial.print(bmpTemperature); Serial.print("°C");
     Serial.print(" | Pressure: "); Serial.print(pressure_hPa); Serial.print(" hPa");
     Serial.print(" | Altitude: "); Serial.print(altitude); Serial.println(" m");
+    xSemaphoreGive(printMutex);
 
     vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
@@ -105,29 +114,36 @@ void BMP180Task(void *parameter) {
 
 void ThingSpeakTask(void *parameter) {
   while (true) {
-    ThingSpeak.setField(1, dhtTemperature);        // DHT Temperature in °C
-    ThingSpeak.setField(2, dhtHumidity);           // DHT Humidity in %
-    ThingSpeak.setField(3, waterLevel);            // Water level in %
-    ThingSpeak.setField(4, pressure);              // Pressure in hPa
-    ThingSpeak.setField(5, altitude);              // Altitude in m
-    ThingSpeak.setField(6, (float)(ax / 9.81));    // Ax (converted to m/s², by dividing by 9.81)
-    ThingSpeak.setField(7, (float)(ay / 9.81));    // Ay (converted to m/s², by dividing by 9.81)
-    ThingSpeak.setField(8, (float)(az / 9.81));    // Az (converted to m/s², by dividing by 9.81)
+    xSemaphoreTake(resourceMutex, portMAX_DELAY); // protect ThingSpeak client
+    ThingSpeak.setField(1, dhtTemperature);
+    ThingSpeak.setField(2, dhtHumidity);
+    ThingSpeak.setField(3, waterLevel);
+    ThingSpeak.setField(4, pressure);
+    ThingSpeak.setField(5, altitude);
+    ThingSpeak.setField(6, (float)(ax / 9.81));
+    ThingSpeak.setField(7, (float)(ay / 9.81));
+    ThingSpeak.setField(8, (float)(az / 9.81));
 
     int code = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+    xSemaphoreGive(resourceMutex);
+
+    xSemaphoreTake(printMutex, portMAX_DELAY);
     if (code == 200) {
       Serial.println("✅ ThingSpeak update successful");
     } else {
       Serial.printf("❌ ThingSpeak update failed (code: %d)\n", code);
     }
+    xSemaphoreGive(printMutex);
 
-    vTaskDelay(30000 / portTICK_PERIOD_MS);  // Delay before next ThingSpeak update
+    vTaskDelay(30000 / portTICK_PERIOD_MS);
   }
 }
 
 void SDCardLoggerTask(void *parameter) {
   while (true) {
     String now = getCurrentTime();
+
+    xSemaphoreTake(resourceMutex, portMAX_DELAY); // protect SD access
     File file = SD.open("/log.csv", FILE_APPEND);
     if (file) {
       file.printf("%s,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n",
@@ -135,11 +151,16 @@ void SDCardLoggerTask(void *parameter) {
                   pressure, altitude, bmpTemperature,
                   ax / 9.81, ay / 9.81, az / 9.81, gx, gy, gz);
       file.close();
+      xSemaphoreTake(printMutex, portMAX_DELAY);
       Serial.println("✅ Data logged to SD card");
+      xSemaphoreGive(printMutex);
     } else {
+      xSemaphoreTake(printMutex, portMAX_DELAY);
       Serial.println("❌ Failed to open log.csv");
+      xSemaphoreGive(printMutex);
     }
-    vTaskDelay(15000 / portTICK_PERIOD_MS);  // Log every 15 seconds
+    xSemaphoreGive(resourceMutex);
+    vTaskDelay(15000 / portTICK_PERIOD_MS);
   }
 }
 
@@ -149,6 +170,9 @@ void setup() {
   dht.begin();
   Wire.begin();
   mpu.initialize();
+
+  printMutex = xSemaphoreCreateMutex();
+  resourceMutex = xSemaphoreCreateMutex();
 
   if (!bmp.begin()) {
     Serial.println("BMP180 not detected. Check wiring!");
