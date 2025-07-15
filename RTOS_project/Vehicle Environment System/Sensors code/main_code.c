@@ -14,10 +14,10 @@
 #define WATER_LEVEL_PIN 36
 #define SD_CS 5
 
-const char *ssid = "hellobuddy";
-const char *password = "abisheck003";
-unsigned long myChannelNumber = 2937230;
-const char *myWriteAPIKey = "YWTYTM209FQT5V5I";
+const char *ssid = "your_ssid_here";
+const char *password = "YOUR_password_here";
+unsigned long myChannelNumber = 123456789;
+const char *myWriteAPIKey = "Write_API_here";
 
 const char *ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 19800; // GMT+5:30
