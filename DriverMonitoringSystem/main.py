@@ -7,10 +7,13 @@ import time
 import numpy as np
 from datetime import datetime
 
-# GPIO for buzzer
+# GPIO for buzzer and LED
 BUZZER_PIN = 18
+LED_PIN = 17  # GPIO pin for LED
+
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(BUZZER_PIN, GPIO.OUT)
+GPIO.setup(LED_PIN, GPIO.OUT)
 
 # Thresholds
 EYE_AR_THRESH = 0.30
@@ -76,6 +79,7 @@ time.sleep(2)
 frame_counter = 0
 distraction_counter = 0
 buzzer_on = False
+led_on = False
 
 try:
     while True:
@@ -114,15 +118,21 @@ try:
             else:
                 distraction_counter = 0
 
-            # Buzzer logic
+            # Buzzer and LED logic
             if status in ["DROWSY", "DISTRACTED"]:
                 if not buzzer_on:
                     GPIO.output(BUZZER_PIN, GPIO.HIGH)
                     buzzer_on = True
+                if not led_on:
+                    GPIO.output(LED_PIN, GPIO.HIGH)
+                    led_on = True
             else:
                 if buzzer_on:
                     GPIO.output(BUZZER_PIN, GPIO.LOW)
                     buzzer_on = False
+                if led_on:
+                    GPIO.output(LED_PIN, GPIO.LOW)
+                    led_on = False
 
             # Color for screen display
             color = (0, 255, 0)
@@ -154,6 +164,7 @@ except KeyboardInterrupt:
 
 finally:
     GPIO.output(BUZZER_PIN, GPIO.LOW)
+    GPIO.output(LED_PIN, GPIO.LOW)
     GPIO.cleanup()
     log_file.close()
     picam2.close()
